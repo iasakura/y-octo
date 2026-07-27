@@ -469,6 +469,8 @@ mod tests {
         doc::{DeleteSet, HashMap, Item, Node, Parent, Somr, YType, YTypeRef},
     };
 
+    type UpdateCase = (&'static str, fn() -> Vec<u8>);
+
     fn map_json(map: ReadMap<'_>) -> JsonValue {
         JsonValue::Object(
             map.iter()
@@ -642,13 +644,16 @@ mod tests {
         .unwrap();
         map.insert(
             "object".into(),
-            Any::Object(HashMap::from_iter([
+            Any::Object(Box::new(HashMap::from_iter([
                 ("nested".into(), Any::Array(vec![Any::Null, Any::Undefined])),
                 (
                     "deep".into(),
-                    Any::Object(HashMap::from_iter([("leaf".into(), Any::Float64(0.5.into()))])),
+                    Any::Object(Box::new(HashMap::from_iter([(
+                        "leaf".into(),
+                        Any::Float64(0.5.into()),
+                    )]))),
                 ),
-            ])),
+            ]))),
         )
         .unwrap();
         let mut array = doc.get_or_create_array("array").unwrap();
@@ -689,7 +694,7 @@ mod tests {
                     0,
                     Content::Doc {
                         guid: "sub".into(),
-                        opts: Any::from(DocOptions::new().with_guid("sub".into())),
+                        opts: Box::new(Any::from(DocOptions::new().with_guid("sub".into()))),
                     },
                     "docs",
                     Some("sub"),
@@ -913,7 +918,7 @@ mod tests {
     #[test]
     #[cfg_attr(loom, ignore)]
     fn updates_match_mutable_views() {
-        let cases: [(&str, fn() -> Vec<u8>); 13] = [
+        let cases: [UpdateCase; 13] = [
             ("empty", || Doc::new().encode_update_v1().unwrap()),
             ("any scalars and containers", any_spectrum_update),
             ("text with embeds", embed_text_update),
