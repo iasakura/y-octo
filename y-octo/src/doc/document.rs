@@ -220,6 +220,10 @@ impl Doc {
         self.opts.guid.as_str()
     }
 
+    pub fn has_pending_updates(&self) -> bool {
+        self.store.read().unwrap().pending.is_some()
+    }
+
     // TODO:
     //   provide a better way instead of `_v1` methods
     //   when implementing `v2` binary format
@@ -432,10 +436,10 @@ mod tests {
 
     #[test]
     fn test_encode_state_as_update() {
-        let yrs_options_left = Options::default();
-        let yrs_options_right = Options::default();
+        loom_model!(64 << 10, {
+            let yrs_options_left = Options::default();
+            let yrs_options_right = Options::default();
 
-        loom_model!({
             let (binary, binary_new) = if cfg!(miri) {
                 let doc = Doc::new();
 
@@ -637,6 +641,7 @@ mod tests {
                 98, 95, 109, 97, 112, 95, 118, 97, 108, 117, 101, 0,
             ])
             .unwrap();
+            assert!(doc.has_pending_updates());
 
             let pending_size = doc
                 .store
@@ -674,7 +679,7 @@ mod tests {
 
     #[test]
     fn test_update_from_vec_ref() {
-        loom_model!({
+        loom_model!(64 << 10, {
             let doc = Doc::new();
 
             let mut text = doc.get_or_create_text("text").unwrap();
@@ -725,9 +730,10 @@ mod tests {
     #[cfg_attr(loom, ignore)]
     fn test_reject_cyclic_type_nesting() {
         // found by fuzzing (decode_doc_update): this corrupt update nests a
-        // type into its own descendant. Deleting items of such cyclic types
-        // used to re-lock an already held type lock and deadlock the thread;
-        // the update must be rejected instead.
+        // type into its own descendant. The unified wire decoder rejects it
+        // even earlier than the cyclic-parent check, on a zero-length
+        // struct; wire-valid cyclic updates are covered by the read-only
+        // differential tests.
         let update = [
             0x01, 0x07, 0x00, 0x00, 0x27, 0x07, 0x00, 0x00, 0x00, 0x00, 0x83, 0x00, 0x00, 0x00, 0x01, 0x73, 0x00, 0x00,
             0x74, 0x00, 0x00, 0x61, 0x00, 0x01, 0x20, 0x01, 0x00, 0x00, 0x80, 0x00, 0x07, 0x01, 0x80, 0x00, 0x00, 0x00,
@@ -736,7 +742,7 @@ mod tests {
 
         assert!(matches!(
             Doc::try_from_binary_v1(update),
-            Err(JwstCodecError::InvalidParent)
+            Err(JwstCodecError::IncompleteDocument(message)) if message == "zero-length struct"
         ));
     }
 }
